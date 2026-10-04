@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Claude 浏览器地区自检</title>
+<style>
+body{font:16px system-ui,sans-serif;max-width:1000px;margin:32px auto;padding:0 20px;color:#18252d;background:#f5f7f8}h1{font-size:26px}h2{font-size:19px}button,a.action{display:inline-block;padding:10px 16px;margin:4px;background:#fff;border:1px solid #b8c7cf;border-radius:7px;cursor:pointer;color:#18252d;text-decoration:none}button:disabled{opacity:.55;cursor:wait}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#fff;padding:20px;border-radius:10px;border:1px solid #d8e0e4}.note,li{color:#53636d;line-height:1.7}.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.card{background:#fff;border:1px solid #d8e0e4;border-radius:10px;padding:16px}.card strong{display:block;margin-bottom:8px}.value{overflow-wrap:anywhere}.meta{font-size:13px;color:#53636d;margin-top:7px}
+</style>
+</head>
+<body>
+<h1>Claude 浏览器地区自检</h1>
+<p class="note">Vibe coding 项目 · 请在实际使用 Claude 的浏览器配置中打开；不同配置的结果可能不同。基本检查仅在本机运行，结果不会上传。WebRTC 按钮会向配置的公共 STUN 服务器发送诊断连接。</p>
+<ol>
+<li>开启自己的代理，确认目标出口国家，再用 Claude 所在浏览器打开本页面。</li>
+<li>查看下方时区、网页首选语言和请求头；预设目标为日本，可通过项目配置调整。</li>
+<li>运行 WebRTC 检查，查看候选地址；在同一浏览器打开 Claude 出口检查，核对 <code>loc=JP</code>。</li>
+<li>保存 JSON，修改设置后再检查并比较。</li>
+</ol>
+<div class="cards" id="summary" aria-live="polite"></div>
+<p class="note" id="stun-note"></p>
+<button id="rtc">运行 WebRTC/STUN 检查</button>
+<button id="download">保存检查结果</button>
+<a class="action" href="https://claude.ai/cdn-cgi/trace" target="_blank" rel="noopener noreferrer">打开 Claude 出口检查</a>
+<p class="note">卡片展示配置对照与检查状态，不提供账号风险评分。中文界面或字体不是地区判定依据。DNS、IPv6 与 Claude Code 出口需单独检查。</p>
+<h2>原始检查结果</h2>
+<pre id="result">正在检查…</pre>
+<script>
+/* SERVER_CONFIG */
+const settings=Object.assign({expectedTimeZone:'Asia/Tokyo',expectedLanguages:['ja','en'],stunUrl:'stun:stun.l.google.com:19302',rtcTimeoutMs:10000},window.REGION_SELFCHECK_CONFIG||{});
+const result={origin:location.origin,checkedAt:new Date().toISOString(),expectations:{timeZone:settings.expectedTimeZone,languages:settings.expectedLanguages},language:navigator.language,languages:Array.from(navigator.languages||[]),locale:Intl.DateTimeFormat().resolvedOptions().locale,timeZone:Intl.DateTimeFormat().resolvedOptions().timeZone,utcOffsetMinutes:-new Date().getTimezoneOffset(),userAgent:navigator.userAgent,platform:navigator.platform,logicalProcessors:navigator.hardwareConcurrency,approximateMemoryGB:navigator.deviceMemory,screen:{width:screen.width,height:screen.height,colorDepth:screen.colorDepth},fonts:{},webRTC:{status:'尚未运行'},errors:[]};
+function card(title,value,detail){const el=document.createElement('div');el.className='card';for(const [tag,text,cls] of [['strong',title,''],['div',value,'value'],['div',detail,'meta']]){const part=document.createElement(tag);part.className=cls;part.textContent=text;el.append(part);}return el;}
+function render(){
+  document.getElementById('result').textContent=JSON.stringify(result,null,2);
+  const summary=document.getElementById('summary');summary.replaceChildren();
+  summary.append(card('时区',result.timeZone,'目标：'+settings.expectedTimeZone+' · '+(result.timeZone===settings.expectedTimeZone?'一致':'需核对')));
+  summary.append(card('网页首选语言',result.languages.join(', ')||'不可读取','目标：'+settings.expectedLanguages.join(', ')+'；显示值供对照'));
+  summary.append(card('Accept-Language',typeof result.requestHeaders==='object'?result.requestHeaders['Accept-Language']||'未提供':'文件模式不可读取','本地服务模式可读取发给本地服务的请求头'));
+  summary.append(card('WebRTC',result.webRTC.status,'候选地址：'+(result.webRTC.candidates||[]).length+' 个；具体值见下方 JSON'));
+}
+document.getElementById('stun-note').textContent='STUN：'+settings.stunUrl+' · 最长等待 '+settings.rtcTimeoutMs/1000+' 秒。';
+const hash=async data=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',data))).map(b=>b.toString(16).padStart(2,'0')).join('');
+async function initial(){
+  if(['http:','https:'].includes(location.protocol)&&['127.0.0.1','localhost'].includes(location.hostname)){
+    try{const response=await fetch('/headers',{cache:'no-store'});if(!response.ok)throw new Error('HTTP '+response.status);result.requestHeaders=await response.json();}catch(e){result.errors.push('本地请求头检查：'+String(e));}
+  }else{result.requestHeaders='直接打开文件无法读取实际 Accept-Language 请求头；navigator.languages 仅作为参考。';}
+  try{
+    const canvas=document.createElement('canvas');canvas.width=360;canvas.height=90;const cx=canvas.getContext('2d');if(!cx)throw new Error('Canvas 不可用');cx.fillStyle='#eaf2fc';cx.fillRect(0,0,360,90);cx.font='20px sans-serif';cx.fillStyle='#223b65';cx.fillText('Local privacy test 日本語 中文 123',10,50);
+    result.canvasSHA256=await hash(new TextEncoder().encode(canvas.toDataURL()));
+    for(const font of ['Microsoft YaHei','Microsoft JhengHei','SimSun','Yu Gothic','Meiryo','MS Gothic']){cx.font='72px monospace';const base=cx.measureText('mmmmmmWWWWW你好日本語').width;cx.font='72px "'+font+'", monospace';result.fonts[font]=Math.abs(cx.measureText('mmmmmmWWWWW你好日本語').width-base)>0.1;}
+  }catch(e){result.errors.push('Canvas/字体检查：'+String(e));}
+  try{const gl=document.createElement('canvas').getContext('webgl');if(gl){const ext=gl.getExtension('WEBGL_debug_renderer_info');result.webGL={vendor:gl.getParameter(gl.VENDOR),renderer:gl.getParameter(gl.RENDERER),unmaskedVendor:ext?gl.getParameter(ext.UNMASKED_VENDOR_WEBGL):'不可读取',unmaskedRenderer:ext?gl.getParameter(ext.UNMASKED_RENDERER_WEBGL):'不可读取'};}else{result.webGL={status:'不可用'};}}catch(e){result.errors.push('WebGL：'+String(e));}
+  try{const C=window.OfflineAudioContext||window.webkitOfflineAudioContext;if(C){const a=new C(1,4410,44100);const o=a.createOscillator();o.type='triangle';o.frequency.value=10000;o.connect(a.destination);o.start();const b=await a.startRendering();result.offlineAudioSHA256=await hash(b.getChannelData(0).buffer);}else{result.offlineAudioStatus='不可用';}}catch(e){result.errors.push('离线音频摘要：'+String(e));}
+  render();
+}
+document.getElementById('rtc').onclick=async()=>{
+  const button=document.getElementById('rtc');button.disabled=true;
+  result.webRTC={status:'检查中',scope:'当前页面来源',stunUrl:settings.stunUrl,candidates:[],errors:[]};render();let peer,timer;
+  try{
+    if(!window.RTCPeerConnection)throw new Error('浏览器未提供 RTCPeerConnection');
+    peer=new RTCPeerConnection({iceServers:[{urls:settings.stunUrl}]});peer.createDataChannel('audit');
+    peer.onicecandidate=e=>{if(e.candidate){result.webRTC.candidates.push({type:e.candidate.type,address:e.candidate.address,protocol:e.candidate.protocol,candidate:e.candidate.candidate});render();}};
+    peer.onicecandidateerror=e=>{result.webRTC.errors.push({code:e.errorCode,text:e.errorText});render();};
+    await peer.setLocalDescription(await peer.createOffer());
+    const outcome=await new Promise(resolve=>{const done=()=>{if(peer.iceGatheringState==='complete')resolve('complete');};peer.addEventListener('icegatheringstatechange',done);timer=setTimeout(()=>resolve('timeout'),settings.rtcTimeoutMs);done();});
+    result.webRTC.status=outcome==='complete'?'收集完成':'等待超时';
+  }catch(e){result.webRTC.status='检查失败';result.webRTC.errors.push({text:String(e)});}
+  finally{clearTimeout(timer);if(peer)peer.close();button.disabled=false;render();}
+};
+document.getElementById('download').onclick=()=>{const link=document.createElement('a');const url=URL.createObjectURL(new Blob([JSON.stringify(result,null,2)],{type:'application/json'}));link.href=url;link.download='browser-region-audit.json';link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+render();initial();
+</script>
+</body>
+</html>
